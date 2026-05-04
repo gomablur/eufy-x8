@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+python_version = "3.13"
+check_untyped_defs = false
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_imports = "silent"

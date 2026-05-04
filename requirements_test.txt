@@ -1,0 +1,5 @@
+pytest-homeassistant-custom-component>=0.13.102
+pytest-asyncio
+cryptography
+aiohttp
+Pillow>=9.0.0
