@@ -333,7 +333,8 @@ class TuyaDevice:
                     self._backoff = True
                     self._queue_interval = min(
                         INITIAL_BACKOFF * (BACKOFF_MULTIPLIER ** (self._failures - 4)), 600)
-                    self._LOGGER.warning("%d failures, backing off %ss", self._failures, self._queue_interval)
+                    self._LOGGER.warning("%d failures connecting to %s:%d, backing off %ss",
+                                         self._failures, self.host or "(no IP)", self.port, self._queue_interval)
         await asyncio.sleep(self._queue_interval)
         asyncio.create_task(self.process_queue())
 
