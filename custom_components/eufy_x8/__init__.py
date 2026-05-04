@@ -61,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         discovery.add_device(entry.data[CONF_DEVICE_ID], entry.data.get(CONF_DEVICE_IP))
 
     coordinator = EufyX8Coordinator(hass, entry)
+    entry.async_on_unload(entry.add_update_listener(coordinator.async_entry_updated))
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

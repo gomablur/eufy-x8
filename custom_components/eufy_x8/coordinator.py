@@ -46,14 +46,27 @@ class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _make_device(self) -> TuyaDevice:
+        ip = self._entry.data[CONF_DEVICE_IP]
+        _LOGGER.debug("Creating TuyaDevice host=%s", ip or "(none)")
         return TuyaDevice(
             device_id=self._entry.data[CONF_DEVICE_ID],
-            host=self._entry.data[CONF_DEVICE_IP],
+            host=ip,
             timeout=TIMEOUT,
             ping_interval=PING_INTERVAL,
             update_entity_state=self.async_request_refresh,
             local_key=self._entry.data[CONF_LOCAL_KEY],
         )
+
+    async def async_entry_updated(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Called when the config entry is updated (e.g. IP changed by UDP discovery)."""
+        new_ip = entry.data.get(CONF_DEVICE_IP, "")
+        current_ip = self._device.host if self._device is not None else None
+        if new_ip and new_ip != current_ip:
+            _LOGGER.info("Device IP changed to %s — recreating connection", new_ip)
+            if self._device is not None:
+                await self._device.async_disable()
+                self._device = None
+            await self.async_request_refresh()
 
     @property
     def device(self) -> TuyaDevice:
