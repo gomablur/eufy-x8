@@ -188,44 +188,36 @@ not `API_OR_API_VERSION_WRONG`), but every parameter combination tried failed. V
 
 **`px.tuyaeu.com`** — DNS does not resolve. Domain is dead/retired.
 
-### Path data record format
+### media.latest v3.0 — actual behaviour (confirmed 2026-05-04)
 
-Each record in `dataList` is a hex string encoding a length-prefixed protobuf:
+**Always returns exactly 1 record** regardless of robot state (docked, cleaning, mid-session,
+post-session). Pagination never occurs (`hasNext` always `False`).
 
-```
-[1 byte: payload length] [protobuf bytes...]
-```
+The data is **not confirmed position data**. A full clean was monitored with 15-second polling
+(~112 polls, robot ran until battery died). The plotted values do not form a recognisable map
+and field 3 jumps by thousands of units between consecutive polls.
 
-The protobuf has 3 varint fields:
+**Record format varies by session phase:**
 
-| Field | Raw value | Zigzag decoded | Meaning |
-|-------|-----------|----------------|---------|
-| 1 | raw varint | `(raw >> 1)` | X — or x_start if sweep-line encoding |
-| 2 | raw varint | `(raw >> 1)` | **Unknown** — see hypotheses below |
-| 3 | raw varint | `(raw >> 1)` | Y — or y (if sweep-line) / x_end (if vertical sweep) |
+| Phase | Fields present | Notes |
+|-------|---------------|-------|
+| Session start / end | 1, 2, 3, 4, 5, 6, 8 | Consistent values ~(216, 918); likely a status/reference record |
+| Localisation (leaving dock) | Different structure, no fields 1 & 3 | Robot finding its map position |
+| Active cleaning | 1, 2, 3 only | Values change each poll; meaning unknown |
 
-**Example** — `0908b21d10ba1418b820` (only record, from parked/barely-moved robot):
-- Length prefix: `09` (9 bytes follow)
-- Field 1: 3762 → zigzag 1881
-- Field 2: 2618 → zigzag 1309
-- Field 3: 4152 → zigzag 2076
+**Field ranges across a full clean:**
 
-**Field 2 hypotheses** — cannot distinguish with a single record:
+| Field | Range | Notes |
+|-------|-------|-------|
+| 1 | 216–4726 | ~3400–4700 during cleaning |
+| 3 | 320–6283 | Large jumps between polls; unknown meaning |
+| 4 | 4977 | Session start/end only; possibly map width |
+| 5 | 3910–3992 | Session start/end only; possibly map height |
+| 6 | 2556–2648 | Session start/end only; unknown |
+| 8 | 262 | Session start only; absent at end |
 
-1. **(x, seq, y)** — individual point with sequence/timestamp counter. Field 2 increases
-   monotonically across records.
-2. **(x_start, x_end, y)** — horizontal sweep line (boustrophedon/lawnmower pattern).
-   Field 1 ≈ field 2 on short sweeps; field 1 < field 2 consistently if robot sweeps
-   left-to-right, or alternates if boustrophedon.
-3. **(x, y_start, y_end)** — vertical sweep line. Same logic transposed.
-
-To resolve: inspect a full-clean dataset. If field 2 ≈ field 1 on most records → sweep-line.
-If field 2 increases by ~1 per record → sequence number. If field 2 is small integers
-(0–10) → type/mode flag.
-
-Coordinates are session-local (not the same space as goto coordinates).
-Only 1 point available so far (aborted test clean). Run `dump_path_data.py --png --fields`
-after a full clean to get hundreds of records and resolve the field 2 question.
+**Conclusion**: `media.latest v3.0` is not a usable source of cleaning path or live position
+data for these devices. What it actually encodes is unknown. Dead end — do not re-investigate.
 
 ### `dump_path_data.py` usage
 
@@ -251,16 +243,20 @@ Dependencies: `pip install requests pycryptodome Pillow`
 
 ## What still needs doing
 
+- [ ] Downstairs bin goto coordinates — need to re-capture after a full clean (robot was
+      confused after test session 2026-05-04; SLAM needs a clean run to re-localise).
+      Previously confirmed as x=2283, y=-363 but stability across reboots unverified.
+      Use `watch_goto.py` after the next full clean.
 - [ ] Upstairs robot (T2262EV, 192.168.42.144) — goto coordinates not yet captured
-- [ ] HA automation YAML — create the "go to bin after clean" automation in HA
-- [ ] DPS 142 (`last_clean`) — absent on all test cleans so far; may only appear after a
-      fully completed clean+dock cycle, or may not exist on this firmware
-- [ ] Full clean path data — only 1 point so far; need a complete session to validate PNG
-      rendering and understand field 2 meaning
-- [ ] `media.detail` unlock — capture `--raw-response` after clean, check for `msgId`/ID
-      fields, retry `media.detail` with that ID
-- [ ] `tuya.m.device.dp.get` — try with `{"devId": ..., "dpIds": [15, 104, 109, 110, 125]}`
-      to see what DPS values the cloud stores
+- [ ] HA automation — "go to bin after clean" (trigger: state returning → docked,
+      action: eufy_x8.goto x=2283 y=-363)
+- [ ] DPS 142 (`last_clean`) — absent on all test cleans; may only appear after a fully
+      completed clean+dock cycle
+
+## Dead ends (do not re-investigate)
+
+- `media.latest v3.0` — not usable path/position data (see section above)
+- `media.detail`, `images.tuyaeu.com`, `px.tuyaeu.com` — all dead (see cloud API section)
 
 ## Dependencies
 
