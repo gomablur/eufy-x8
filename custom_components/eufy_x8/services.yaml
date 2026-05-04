@@ -1,0 +1,26 @@
+goto:
+  name: Go to location
+  description: Send the robot to a specific location in its map coordinate system.
+  target:
+    entity:
+      integration: eufy_x8
+      domain: vacuum
+  fields:
+    x:
+      name: X coordinate
+      description: X coordinate in the robot's persistent map coordinate system.
+      required: true
+      example: 2283
+      selector:
+        number:
+          mode: box
+          step: 1
+    y:
+      name: Y coordinate
+      description: Y coordinate in the robot's persistent map coordinate system.
+      required: true
+      example: -363
+      selector:
+        number:
+          mode: box
+          step: 1

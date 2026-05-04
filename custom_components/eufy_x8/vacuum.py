@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.components.vacuum import (
     StateVacuumEntity,
     VacuumEntityFeature,
@@ -11,7 +12,7 @@ from homeassistant.components.vacuum import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get_current_platform
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -51,6 +52,16 @@ async def async_setup_entry(
 ) -> None:
     coordinator: EufyX8Coordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities([EufyX8Vacuum(coordinator, entry)])
+
+    platform = async_get_current_platform()
+    platform.async_register_entity_service(
+        "goto",
+        {
+            vol.Required("x"): vol.Coerce(int),
+            vol.Required("y"): vol.Coerce(int),
+        },
+        "async_goto_location",
+    )
 
 
 class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
@@ -113,6 +124,11 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
     async def async_set_fan_speed(self, fan_speed: str, **kwargs) -> None:
         raw = FAN_SPEED_FROM_LABEL.get(fan_speed, fan_speed)
         await self.coordinator.device.async_set({DPS_CLEAN_SPEED: raw})
+
+    async def async_goto_location(self, x: int, y: int) -> None:
+        accepted = await self.coordinator.device.async_goto(x, y)
+        if not accepted:
+            _LOGGER.warning("goto(%d, %d) rejected by robot", x, y)
 
     async def async_send_command(
         self, command: str, params: dict[str, Any] | None = None, **kwargs
