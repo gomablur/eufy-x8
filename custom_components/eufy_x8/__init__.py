@@ -25,7 +25,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     async def _on_device_found(info: dict) -> None:
-        """Update IP in config entry if the robot's IP has changed."""
+        """Update IP in config entry if changed; reset backoff if robot just came back online."""
         device_id = info.get("gwId") or info.get("devId", "")
         new_ip = info.get("ip", "")
         if not device_id or not new_ip:
@@ -38,6 +38,15 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
                     hass.config_entries.async_update_entry(
                         entry, data={**entry.data, CONF_DEVICE_IP: new_ip}
                     )
+                else:
+                    # Same IP — robot is broadcasting (online). If we were backed off,
+                    # reset immediately so we reconnect without waiting out the backoff.
+                    coordinator: EufyX8Coordinator | None = hass.data[DOMAIN].get(entry.entry_id)
+                    if coordinator is not None and coordinator._device is not None:
+                        if coordinator._device._backoff:
+                            _LOGGER.info("Robot %s back online — resetting backoff", entry.title)
+                            coordinator._device.reset_backoff()
+                            await coordinator.async_request_refresh()
 
     if _DISCOVERY_KEY not in hass.data:
         discovery = TuyaLocalDiscovery(_on_device_found)

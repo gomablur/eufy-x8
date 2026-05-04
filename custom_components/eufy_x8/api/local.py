@@ -310,6 +310,11 @@ class TuyaDevice:
         self._failures = 0
         asyncio.create_task(self.process_queue())
 
+    def reset_backoff(self) -> None:
+        self._failures = 0
+        self._backoff = False
+        self._queue_interval = INITIAL_QUEUE_TIME
+
     def update_local_key(self, new_key: str) -> None:
         """Replace the local key (called after cloud key refresh)."""
         if len(new_key) != 16:
@@ -336,7 +341,7 @@ class TuyaDevice:
                 if self._failures > 3:
                     self._backoff = True
                     self._queue_interval = min(
-                        INITIAL_BACKOFF * (BACKOFF_MULTIPLIER ** (self._failures - 4)), 600)
+                        INITIAL_BACKOFF * (BACKOFF_MULTIPLIER ** (self._failures - 4)), 60)
                     self._LOGGER.warning("%d failures connecting to %s:%d, backing off %ss",
                                          self._failures, self.host or "(no IP)", self.port, self._queue_interval)
         await asyncio.sleep(self._queue_interval)
