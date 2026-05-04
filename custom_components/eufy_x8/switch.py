@@ -13,7 +13,6 @@ from .const import (
     DOMAIN,
     DPS_AUTO_RETURN,
     DPS_BOOST_IQ,
-    DPS_DO_NOT_DISTURB,
 )
 from .coordinator import EufyX8Coordinator
 
@@ -27,7 +26,6 @@ async def async_setup_entry(
     name = entry.data[CONF_DEVICE_NAME]
     async_add_entities([
         BoostIQSwitch(coordinator, entry, name),
-        DoNotDisturbSwitch(coordinator, entry, name),
         AutoReturnSwitch(coordinator, entry, name),
     ])
 
@@ -63,13 +61,6 @@ class BoostIQSwitch(_DPSSwitch):
 
     def __init__(self, coordinator, entry, name):
         super().__init__(coordinator, entry, name, "BoostIQ", "boost_iq", DPS_BOOST_IQ)
-
-
-class DoNotDisturbSwitch(_DPSSwitch):
-    _attr_icon = "mdi:sleep"
-
-    def __init__(self, coordinator, entry, name):
-        super().__init__(coordinator, entry, name, "Do Not Disturb", "do_not_disturb", DPS_DO_NOT_DISTURB)
 
 
 class AutoReturnSwitch(_DPSSwitch):
