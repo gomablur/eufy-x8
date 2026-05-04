@@ -138,7 +138,10 @@ async def test_async_return_to_base(vacuum, mock_coordinator):
 @pytest.mark.asyncio
 async def test_async_locate(vacuum, mock_coordinator):
     await vacuum.async_locate()
-    mock_coordinator.device.async_set.assert_awaited_once_with({DPS_LOCATE: True})
+    calls = mock_coordinator.device.async_set.await_args_list
+    assert len(calls) == 2
+    assert calls[0].args[0] == {DPS_LOCATE: False}
+    assert calls[1].args[0] == {DPS_LOCATE: True}
 
 
 @pytest.mark.asyncio
