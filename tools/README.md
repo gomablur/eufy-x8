@@ -2,9 +2,14 @@
 
 Standalone diagnostic and setup scripts for the `eufy_x8` Home Assistant integration. These help you discover goto coordinates for locations in your home, test the local protocol, and debug without needing HA running.
 
-## Prerequisites
+## Setup
+
+Create a virtualenv and install dependencies:
 
 ```bash
+cd tools
+python3 -m venv .venv
+source .venv/bin/activate
 pip install tinytuya requests pycryptodome
 pip install scapy    # intercept_goto.py only (requires root)
 ```
@@ -14,6 +19,8 @@ You also need:
 - The robot connected to your LAN
 - For `intercept_goto.py`: a Linux machine on the same network as the phone and robot
 
+> **Note**: The local key rotates frequently (several times a day). Re-run `get_local_keys.py` whenever other scripts return errors, and update the key in your command.
+
 ## The three tools
 
 ### 1. `get_local_keys.py` — fetch device credentials
@@ -21,12 +28,12 @@ You also need:
 Retrieves the Tuya Device ID, IP address, and local key for every Eufy device on your account.
 
 ```bash
-python get_local_keys.py --email you@example.com --password yourpassword
+.venv/bin/python get_local_keys.py --email you@example.com --password yourpassword
 
 # Or use environment variables:
 export EUFY_EMAIL=you@example.com
 export EUFY_PASSWORD=yourpassword
-python get_local_keys.py
+.venv/bin/python get_local_keys.py
 ```
 
 Output:
@@ -39,8 +46,6 @@ Found 2 device(s):
   Upstairs Clean                  bf3b83d14f132d51b0gzpk      def456uvw...          192.168.1.144     False
 ```
 
-**Re-run this whenever other tools return errors** — the local key rotates multiple times per day when the robot reconnects to the Eufy cloud.
-
 ---
 
 ### 2. `tuya_local_control.py` — send commands and monitor the robot
@@ -48,7 +53,7 @@ Found 2 device(s):
 Communicates with the robot directly over your LAN using Tuya v3.3 (port 6668).
 
 ```bash
-python tuya_local_control.py \
+.venv/bin/python tuya_local_control.py \
     --device-ip 192.168.1.17 \
     --device-id bfc291ad10e8247fefwnk2 \
     --local-key abc123xyz... \
@@ -69,13 +74,13 @@ python tuya_local_control.py \
 
 ```bash
 # Check current status
-python tuya_local_control.py --device-ip 192.168.1.17 --device-id <id> --local-key <key> status
+.venv/bin/python tuya_local_control.py --device-ip 192.168.1.17 --device-id <id> --local-key <key> status
 
 # Send robot to bin position
-python tuya_local_control.py ... goto 2283 -363
+.venv/bin/python tuya_local_control.py ... goto 2283 -363
 
 # Watch for updates while using the Eufy app (useful for observing DPS 124 echoes)
-python tuya_local_control.py ... monitor 300
+.venv/bin/python tuya_local_control.py ... monitor 300
 ```
 
 **Goto note**: `goto` requires the robot to be in `standby` or `Charging` state (not actively cleaning). The command automatically sends `clear`, waits 35 seconds, then sends `goto`. Skipping `clear` causes the robot to do a spot clean at the target instead of navigating there.
@@ -96,7 +101,7 @@ ip link show
 ip addr show <iface>
 
 # Run the intercept
-sudo python intercept_goto.py \
+sudo .venv/bin/python intercept_goto.py \
     --robot-ip 192.168.1.17 \
     --local-key abc123xyz... \
     --iface eth0 \
@@ -130,10 +135,11 @@ sudo python intercept_goto.py \
 
 ## Typical workflow for a new user
 
-1. **Get credentials**: `get_local_keys.py` — note Device ID, IP, Local Key
-2. **Verify connection**: `tuya_local_control.py ... status`
-3. **Capture coordinates**: `intercept_goto.py` — use the Eufy app to send the robot to each location you care about (bin, favourite spots)
-4. **Use in automations**: put the coordinates in HA `vacuum.send_command` calls
+1. **Set up venv**: `python3 -m venv .venv && source .venv/bin/activate && pip install tinytuya requests pycryptodome`
+2. **Get credentials**: `.venv/bin/python get_local_keys.py` — note Device ID, IP, Local Key
+3. **Verify connection**: `.venv/bin/python tuya_local_control.py ... status`
+4. **Capture coordinates**: `sudo .venv/bin/python intercept_goto.py` — use the Eufy app to send the robot to each location you care about (bin, favourite spots)
+5. **Use in automations**: put the coordinates in HA `vacuum.send_command` calls
 
 ## Protocol reference
 
