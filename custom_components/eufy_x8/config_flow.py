@@ -1,4 +1,4 @@
-"""Config flow: email + password → device select (with async UDP discovery)."""
+"""Config flow: email + password → all devices added automatically."""
 from __future__ import annotations
 
 import asyncio
@@ -30,15 +30,21 @@ _LOGGER = logging.getLogger(__name__)
 DISCOVERY_TIMEOUT = 4.0
 
 
+def _make_entry_data(
+    email: str, password: str, device: "DeviceInfo", local_ips: dict[str, str]
+) -> dict:
+    return {
+        CONF_EMAIL: email,
+        CONF_PASSWORD: password,
+        CONF_DEVICE_ID: device.device_id,
+        CONF_DEVICE_NAME: device.name,
+        CONF_DEVICE_IP: local_ips.get(device.device_id, ""),
+        CONF_LOCAL_KEY: device.local_key,
+    }
+
+
 class EufyX8ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
-
-    def __init__(self) -> None:
-        self._auth: EufyAuth | None = None
-        self._devices: list[DeviceInfo] = []
-        self._local_ips: dict[str, str] = {}
-        self._email: str = ""
-        self._password: str = ""
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -55,15 +61,41 @@ class EufyX8ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not devices:
                     errors["base"] = "no_devices"
                 else:
-                    self._auth = auth
-                    self._email = email
-                    self._password = password
-                    self._devices = devices
-                    self._local_ips = await discover_local_ips(
+                    local_ips = await discover_local_ips(
                         [d.device_id for d in devices],
                         timeout=DISCOVERY_TIMEOUT,
                     )
-                    return await self.async_step_device()
+
+                    configured_ids = {
+                        e.data[CONF_DEVICE_ID]
+                        for e in self.hass.config_entries.async_entries(DOMAIN)
+                        if CONF_DEVICE_ID in e.data
+                    }
+                    new_devices = [d for d in devices if d.device_id not in configured_ids]
+
+                    if not new_devices:
+                        await auth.close()
+                        return self.async_abort(reason="already_configured")
+
+                    # Schedule a flow for every device after the first — each will create
+                    # its own entry via async_step_import without user interaction.
+                    for device in new_devices[1:]:
+                        self.hass.async_create_task(
+                            self.hass.config_entries.flow.async_init(
+                                DOMAIN,
+                                context={"source": config_entries.SOURCE_IMPORT},
+                                data=_make_entry_data(email, password, device, local_ips),
+                            )
+                        )
+
+                    first = new_devices[0]
+                    await auth.close()
+                    await self.async_set_unique_id(first.device_id)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=first.name,
+                        data=_make_entry_data(email, password, first, local_ips),
+                    )
             except AuthError:
                 errors["base"] = "invalid_auth"
             except (TimeoutError, asyncio.TimeoutError, OSError):
@@ -84,60 +116,15 @@ class EufyX8ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_device(
-        self, user_input: dict[str, Any] | None = None
+    async def async_step_import(
+        self, import_data: dict[str, Any]
     ) -> config_entries.FlowResult:
-        errors: dict[str, str] = {}
-
-        device_options = {}
-        for d in self._devices:
-            ip = self._local_ips.get(d.device_id, "")
-            suffix = f" — {ip}" if ip else " — IP not yet discovered"
-            device_options[d.device_id] = d.name + suffix
-
-        if user_input is not None:
-            device_id = user_input[CONF_DEVICE_ID]
-            device = next((d for d in self._devices if d.device_id == device_id), None)
-            manual_ip = (user_input.get(CONF_DEVICE_IP) or "").strip()
-
-            if device is None:
-                errors["base"] = "device_not_found"
-            elif not device.local_key:
-                errors["base"] = "no_local_key"
-            else:
-                ip = self._local_ips.get(device_id) or manual_ip
-                await self._auth.close()
-                await self.async_set_unique_id(device_id)
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title=device.name,
-                    data={
-                        CONF_EMAIL: self._email,
-                        CONF_PASSWORD: self._password,
-                        CONF_DEVICE_ID: device.device_id,
-                        CONF_DEVICE_NAME: device.name,
-                        CONF_DEVICE_IP: ip,
-                        CONF_LOCAL_KEY: device.local_key,
-                    },
-                )
-
-        any_missing = any(d.device_id not in self._local_ips for d in self._devices)
-        schema: dict = {vol.Required(CONF_DEVICE_ID): vol.In(device_options)}
-        if any_missing:
-            schema[vol.Optional(CONF_DEVICE_IP, default="")] = str
-
-        return self.async_show_form(
-            step_id="device",
-            data_schema=vol.Schema(schema),
-            errors=errors,
-            description_placeholders={
-                "discovery_note": (
-                    f"Auto-discovered {len(self._local_ips)}/{len(self._devices)} device(s). "
-                    "Leave IP blank — the integration will find it automatically once the robot wakes."
-                    if any_missing else
-                    f"All {len(self._devices)} device(s) found on local network."
-                )
-            },
+        """Create an entry from programmatic discovery (additional devices from async_step_user)."""
+        await self.async_set_unique_id(import_data[CONF_DEVICE_ID])
+        self._abort_if_unique_id_configured()
+        return self.async_create_entry(
+            title=import_data[CONF_DEVICE_NAME],
+            data=import_data,
         )
 
     # ------------------------------------------------------------------

@@ -110,7 +110,11 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
         await self.coordinator.device.async_set({DPS_RETURN_HOME: True})
 
     async def async_locate(self, **kwargs) -> None:
+        # Reset first to guarantee a False→True edge, since the robot is edge-triggered
+        # and will ignore a True→True (no-change) command.
+        await self.coordinator.device.async_set({DPS_LOCATE: False})
         await self.coordinator.device.async_set({DPS_LOCATE: True})
+        _LOGGER.debug("locate: queued DPS 103 False→True")
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs) -> None:
         raw = FAN_SPEED_FROM_LABEL.get(fan_speed, fan_speed)

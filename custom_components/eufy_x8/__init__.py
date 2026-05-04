@@ -16,7 +16,7 @@ CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["vacuum", "sensor", "switch", "button", "select", "camera"]
+PLATFORMS = ["vacuum", "sensor", "switch", "button", "select"]
 _DISCOVERY_KEY = f"{DOMAIN}_discovery"
 
 

@@ -1,8 +1,6 @@
-"""Sensors: battery, cleaning stats, error, consumables, activity."""
+"""Sensors: battery, cleaning stats, error, activity, position."""
 from __future__ import annotations
 
-import base64
-import json
 import logging
 
 from homeassistant.components.sensor import (
@@ -24,7 +22,6 @@ from .const import (
     DPS_BATTERY,
     DPS_CLEANING_AREA,
     DPS_CLEANING_TIME,
-    DPS_CONSUMABLES,
     DPS_ERROR_CODE,
     DPS_WORK_STATUS,
     DPS_WORK_STATUS_2,
@@ -47,16 +44,6 @@ ERROR_MESSAGES = {
     "Fan_stuck": "Fan stuck", "S_brush_stuck": "Side brush stuck",
 }
 
-# Consumable keys from DPS 116 JSON and their display names
-CONSUMABLE_LABELS = {
-    "SB": "Side Brush",
-    "RB": "Rolling Brush",
-    "FM": "Filter",
-    "SP": "Sensor Pad",
-    "SS": "Side Sensor",
-    "TR": "Total Runtime",
-}
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -72,10 +59,7 @@ async def async_setup_entry(
         ActivitySensor(coordinator, entry, name),
         DetailedStatusSensor(coordinator, entry, name),
         ErrorSensor(coordinator, entry, name),
-        PositionSensor(coordinator, entry, name),
     ]
-    for key, label in CONSUMABLE_LABELS.items():
-        entities.append(ConsumableSensor(coordinator, entry, name, key, label))
     async_add_entities(entities)
 
 
@@ -158,31 +142,6 @@ class ErrorSensor(_Base):
         return {"error_code": self.coordinator.data.get(DPS_ERROR_CODE, 0)}
 
 
-class ConsumableSensor(_Base):
-    """Reports hours of use for a single consumable component."""
-
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = UnitOfTime.HOURS
-    _attr_icon = "mdi:progress-wrench"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator, entry, device_name, key: str, label: str):
-        suffix = label
-        unique_suffix = f"consumable_{key.lower()}"
-        super().__init__(coordinator, entry, device_name, suffix, unique_suffix)
-        self._key = key
-
-    @property
-    def native_value(self) -> float | None:
-        raw = self.coordinator.data.get(DPS_CONSUMABLES)
-        if not raw:
-            return None
-        try:
-            decoded = json.loads(base64.b64decode(raw).decode())
-            return decoded.get("consumable", {}).get("duration", {}).get(self._key)
-        except Exception:
-            return None
-
 
 # DPS15 + DPS122 → human-readable status
 _DETAILED_STATUS: dict[tuple[str, str], str] = {
@@ -225,33 +184,3 @@ class DetailedStatusSensor(_Base):
         }
 
 
-class PositionSensor(_Base):
-    """
-    Last position from media.latest v3.0 (session-local coordinates).
-    These are NOT goto coordinates — they cannot be used directly in goto commands.
-    """
-
-    _attr_icon = "mdi:map-marker"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator, entry, name):
-        super().__init__(coordinator, entry, name, "Last Position", "last_position")
-
-    @property
-    def native_value(self) -> str | None:
-        pos = self.coordinator.last_position
-        if pos is None:
-            return None
-        return f"{pos['x']}, {pos['y']}"
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        pos = self.coordinator.last_position
-        if pos is None:
-            return {}
-        return {
-            "x": pos["x"],
-            "y": pos["y"],
-            "captured_at": pos["captured_at"],
-            "note": "session-local coordinates, not goto map coordinates",
-        }

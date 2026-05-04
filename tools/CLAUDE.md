@@ -9,13 +9,14 @@ and debug the integration — without needing HA running.
 They are generic (no hardcoded credentials or device details) and intended to be published
 as part of the integration repository.
 
-## The three tools
+## The four tools
 
 | Script | Purpose | Requires root? |
 |--------|---------|---------------|
 | `get_local_keys.py` | Fetch Tuya local keys for all Eufy devices on an account | No |
 | `tuya_local_control.py` | Send commands and monitor DPS over local LAN | No |
 | `intercept_goto.py` | Capture goto (x,y) coords by intercepting the Eufy app | Yes (ARP) |
+| `dump_path_data.py` | Fetch & decode cleaning path data from Tuya cloud API; probe APIs; render PNG | No |
 
 ### Typical workflow for a new user
 
@@ -126,19 +127,147 @@ Trigger: state change `returning` → `docked` (robot just finished a clean and 
 The `async_send_command` in `vacuum.py` handles the `goto` command, which calls
 `coordinator.device.async_goto(x, y)` in `api/local.py`.
 
+## Cloud API (Tuya Mobile API — `a1.tuyaeu.com/api.json`)
+
+Path data is only available via the Tuya cloud REST API, not the local protocol.
+Auth: Eufy login → Tuya UID token → RSA-encrypted password → SID.
+
+### Working endpoints (exhaustively probed, May 2026)
+
+| Action | Version | Notes |
+|--------|---------|-------|
+| `tuya.m.device.media.latest` | `3.0` | **Only real path data source.** Returns `{dataList: [...], hasNext: bool}` |
+| `tuya.m.device.media.latest` | `1.0`, `2.0` | Succeed but always return empty `dataList` |
+| `tuya.m.device.dp.get` | `1.0`, `2.0` | Succeeds with pagination payload but returns 0 records — needs `dpIds` list payload |
+| `tuya.m.device.info.get` | `1.0` | Succeeds but returns 0 records — needs correct payload |
+
+Everything else (`tuya.m.robot.*`, `tuya.m.device.media.history/list/record.*`, etc.) returns
+`API_OR_API_VERSION_WRONG` — these action names don't exist for this account/region.
+
+### Definitively ruled out (do not re-probe)
+
+All probing was done with 6 API versions (1.0, 2.0, 2.1, 3.0, 3.1, 4.0) and multiple payload
+variants. `API_OR_API_VERSION_WRONG` means the action name does not exist for this account/region —
+it is not a version mismatch. These are dead:
+
+**All `tuya.m.robot.*` actions** — none exist for this device/account:
+- `tuya.m.robot.history.list`, `tuya.m.robot.history.latest`
+- `tuya.m.robot.map.get`, `tuya.m.robot.map.latest`
+- `tuya.m.robot.path.get`, `tuya.m.robot.media.latest`
+
+**All `tuya.m.device.media.*` variants except `latest`**:
+- `tuya.m.device.media.history` — not found
+- `tuya.m.device.media.list` — not found
+- `tuya.m.device.media.record.list`, `tuya.m.device.media.record.latest` — not found
+- `tuya.m.device.media.getLatestMessage` — not found
+- `tuya.m.device.media.map`, `tuya.m.device.media.path` — not found
+
+**`tuya.m.device.status.get`** — not found on any version.
+
+**API versions 2.1, 3.1, 4.0** — always `API_OR_API_VERSION_WRONG` for every action tested.
+
+**`tuya.m.device.media.detail`** — the action exists (returns `REMOTE_API_PARAM_ALL_INPUT_LOSS`,
+not `API_OR_API_VERSION_WRONG`), but every parameter combination tried failed. Versions 1.0, 2.0,
+3.0 all tried. Payloads attempted:
+- Time ranges: `startTime`/`endTime` (both seconds and milliseconds epoch)
+- Type fields: `type: "path"`, `type: "map"`, `type: 0`, `type: 1`, `dataType: 0`, `dataType: 1`
+- ID fields: `mediaId: "0"`, `mediaId: 0`, `msgId: "0"`, `recordId: "0"`
+- Combos: `start`+`size`, `start`+`size`+`type`, `uid`+`start`+`size`,
+  `startTime`+`endTime`+`type`, `startTime`+`endTime`+`size`
+- Still needs an ID token from the `media.latest` full response (not just `dataList`). Check
+  `--raw-response` output after a clean to see if a `msgId` or similar field appears.
+
+**`images.tuyaeu.com`** — server responds but 403 on every combination tried:
+- URL patterns: `/{devId}/map.png`, `/{devId}/latest.png`, `/device/{devId}/map.png`,
+  `/map/{devId}.png`, `/{devId}/path.png`, `/{devId}/{mapId}.png`, `/{devId}/{mapId}/map.png`,
+  `/map/{devId}/{mapId}.png`
+- Auth variants: no auth, `sid` header, `sid` cookie, `Bearer {sid}`, `Bearer {access_token}`,
+  `token` header, `access_token` header, `?sid=` query param
+- Conclusion: needs a device-signed URL or certificate-bound token we cannot generate from the
+  mobile API credentials alone.
+
+**`px.tuyaeu.com`** — DNS does not resolve. Domain is dead/retired.
+
+### Path data record format
+
+Each record in `dataList` is a hex string encoding a length-prefixed protobuf:
+
+```
+[1 byte: payload length] [protobuf bytes...]
+```
+
+The protobuf has 3 varint fields:
+
+| Field | Raw value | Zigzag decoded | Meaning |
+|-------|-----------|----------------|---------|
+| 1 | raw varint | `(raw >> 1)` | X — or x_start if sweep-line encoding |
+| 2 | raw varint | `(raw >> 1)` | **Unknown** — see hypotheses below |
+| 3 | raw varint | `(raw >> 1)` | Y — or y (if sweep-line) / x_end (if vertical sweep) |
+
+**Example** — `0908b21d10ba1418b820` (only record, from parked/barely-moved robot):
+- Length prefix: `09` (9 bytes follow)
+- Field 1: 3762 → zigzag 1881
+- Field 2: 2618 → zigzag 1309
+- Field 3: 4152 → zigzag 2076
+
+**Field 2 hypotheses** — cannot distinguish with a single record:
+
+1. **(x, seq, y)** — individual point with sequence/timestamp counter. Field 2 increases
+   monotonically across records.
+2. **(x_start, x_end, y)** — horizontal sweep line (boustrophedon/lawnmower pattern).
+   Field 1 ≈ field 2 on short sweeps; field 1 < field 2 consistently if robot sweeps
+   left-to-right, or alternates if boustrophedon.
+3. **(x, y_start, y_end)** — vertical sweep line. Same logic transposed.
+
+To resolve: inspect a full-clean dataset. If field 2 ≈ field 1 on most records → sweep-line.
+If field 2 increases by ~1 per record → sequence number. If field 2 is small integers
+(0–10) → type/mode flag.
+
+Coordinates are session-local (not the same space as goto coordinates).
+Only 1 point available so far (aborted test clean). Run `dump_path_data.py --png --fields`
+after a full clean to get hundreds of records and resolve the field 2 question.
+
+### `dump_path_data.py` usage
+
+```bash
+# Fetch path data and render PNG
+python dump_path_data.py --email you@example.com --password 'pass' \
+    --device-id <id> --png /tmp/map.png
+
+# Dump full API response to look for hidden result fields
+python dump_path_data.py ... --raw-response
+
+# Probe all API action/version combos
+python dump_path_data.py ... --probe-all
+
+# Probe media.detail parameter variants
+python dump_path_data.py ... --probe-detail
+
+# Probe images.tuyaeu.com URL patterns with auth variants
+python dump_path_data.py ... --probe-urls [--map-id <id>]
+```
+
+Dependencies: `pip install requests pycryptodome Pillow`
+
 ## What still needs doing
 
 - [ ] Upstairs robot (T2262EV, 192.168.42.144) — goto coordinates not yet captured
 - [ ] HA automation YAML — create the "go to bin after clean" automation in HA
-- [ ] DPS 142 (`last_clean`) — contents not fully decoded; may contain useful data
-- [ ] `accumulate_map.py` (in eufy-clean/standalone) — experimental path accumulator,
-      not yet proven reliable enough to move here
+- [ ] DPS 142 (`last_clean`) — absent on all test cleans so far; may only appear after a
+      fully completed clean+dock cycle, or may not exist on this firmware
+- [ ] Full clean path data — only 1 point so far; need a complete session to validate PNG
+      rendering and understand field 2 meaning
+- [ ] `media.detail` unlock — capture `--raw-response` after clean, check for `msgId`/ID
+      fields, retry `media.detail` with that ID
+- [ ] `tuya.m.device.dp.get` — try with `{"devId": ..., "dpIds": [15, 104, 109, 110, 125]}`
+      to see what DPS values the cloud stores
 
 ## Dependencies
 
 ```
 pip install tinytuya requests pycryptodome
 pip install scapy    # intercept_goto.py only
+pip install Pillow   # dump_path_data.py --png only
 ```
 
 ## Related files in the integration
