@@ -46,8 +46,6 @@ class TuyaLocalDiscovery(asyncio.DatagramProtocol):
             transport.close()
 
     def datagram_received(self, data, addr) -> None:
-        if self._known_ips and addr[0] not in self._known_ips:
-            return
         data = data[20:-8]
         try:
             cipher = Cipher(algorithms.AES(UDP_KEY), modes.ECB(), default_backend())
