@@ -83,28 +83,25 @@ def _print_coords(x: int, y: int, source: str) -> None:
 def _pick_device(devices: list[dict], device_ip: str | None) -> dict:
     if not devices:
         raise SystemExit("No devices found on this account.")
-    if device_ip:
-        match = next((d for d in devices if d["ip"] == device_ip), None)
-        if not match:
-            print(f"No device with IP {device_ip}. Available:")
-            for d in devices:
-                print(f"  {d['name']:<30}  {d['ip']}")
-            raise SystemExit(1)
-        return match
     if len(devices) == 1:
-        return devices[0]
-    # Multiple devices — ask
-    print("Multiple devices found:")
-    for i, d in enumerate(devices):
-        print(f"  {i+1}. {d['name']:<30}  {d['ip']}")
-    while True:
-        try:
-            choice = int(input("Select device number: ")) - 1
-            if 0 <= choice < len(devices):
-                return devices[choice]
-        except (ValueError, EOFError):
-            pass
-        print("Invalid choice.")
+        device = devices[0]
+    else:
+        print("Multiple devices found:")
+        for i, d in enumerate(devices):
+            print(f"  {i+1}. {d['name']}")
+        while True:
+            try:
+                choice = int(input("Select device number: ")) - 1
+                if 0 <= choice < len(devices):
+                    device = devices[choice]
+                    break
+            except (ValueError, EOFError):
+                pass
+            print("Invalid choice.")
+    # --device-ip overrides the cloud IP (which is public, not LAN)
+    if device_ip:
+        device = {**device, "ip": device_ip}
+    return device
 
 
 def main() -> None:
