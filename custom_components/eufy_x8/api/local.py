@@ -319,6 +319,10 @@ class TuyaDevice:
     async def process_queue(self):
         if self._enabled is False:
             return
+        if not self.host:
+            await asyncio.sleep(30)
+            asyncio.create_task(self.process_queue())
+            return
         self.clean_queue()
         if len(self._queue) > 0:
             try:
@@ -343,6 +347,8 @@ class TuyaDevice:
         self._queue = [item for item in self._queue if item.expiry > now]
 
     async def async_connect(self):
+        if not self.host:
+            raise ConnectionException("No IP address configured")
         if self._connected is True or self._enabled is False:
             return
         sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM)
