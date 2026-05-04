@@ -6,10 +6,13 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .api.discovery import TuyaLocalDiscovery
 from .const import CONF_DEVICE_ID, CONF_DEVICE_IP, CONF_LOCAL_KEY, DOMAIN
 from .coordinator import EufyX8Coordinator
+
+CONFIG_SCHEMA = cv.empty_config_schema(DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 
