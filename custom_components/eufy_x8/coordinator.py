@@ -47,8 +47,8 @@ class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _make_device(self) -> TuyaDevice:
         ip = self._entry.data[CONF_DEVICE_IP]
-        _LOGGER.info("Creating TuyaDevice for %s host=%s",
-                     self._entry.data[CONF_DEVICE_ID], ip or "(no IP stored)")
+        _LOGGER.warning("Creating TuyaDevice for %s host=%s",
+                        self._entry.data[CONF_DEVICE_ID], ip or "(no IP stored)")
         return TuyaDevice(
             device_id=self._entry.data[CONF_DEVICE_ID],
             host=ip,
