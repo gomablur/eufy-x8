@@ -440,6 +440,10 @@ class TuyaDevice:
                 if isinstance(sem, asyncio.Semaphore):
                     self._listeners[message.sequence] = message
                     sem.release()
+                # Process DPS from GET responses regardless of whether anyone is
+                # still awaiting the semaphore — async_recieve() bails immediately
+                # when not yet connected, so polling still needs to update state.
+                asyncio.create_task(self.async_gratuitous_update_state(message))
             else:
                 handler = self._handlers.get(message.command)
                 if handler is not None:

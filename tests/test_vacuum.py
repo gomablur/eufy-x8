@@ -7,7 +7,6 @@ from homeassistant.components.vacuum import VacuumEntityFeature
 from custom_components.eufy_x8.vacuum import EufyX8Vacuum, FEATURES
 from custom_components.eufy_x8.const import (
     DPS_ACTIVATE,
-    DPS_BATTERY,
     DPS_CLEAN_SPEED,
     DPS_LOCATE,
     DPS_RETURN_HOME,
@@ -54,7 +53,7 @@ def test_vacuum_features(vacuum):
     assert vacuum.supported_features & VacuumEntityFeature.START
     assert vacuum.supported_features & VacuumEntityFeature.STOP
     assert vacuum.supported_features & VacuumEntityFeature.RETURN_HOME
-    assert vacuum.supported_features & VacuumEntityFeature.BATTERY
+    assert not vacuum.supported_features & VacuumEntityFeature.BATTERY
     assert vacuum.supported_features & VacuumEntityFeature.FAN_SPEED
     assert vacuum.supported_features & VacuumEntityFeature.SEND_COMMAND
 
@@ -85,15 +84,6 @@ def test_vacuum_state(vacuum, mock_coordinator, dps15, expected_state):
     mock_coordinator.data = {DPS_WORK_STATUS: dps15}
     assert vacuum.state == expected_state
 
-
-def test_vacuum_battery(vacuum, mock_coordinator):
-    mock_coordinator.data = {DPS_BATTERY: 85}
-    assert vacuum.battery_level == 85
-
-
-def test_vacuum_battery_none(vacuum, mock_coordinator):
-    mock_coordinator.data = {}
-    assert vacuum.battery_level is None
 
 
 @pytest.mark.parametrize("raw,expected_label", [

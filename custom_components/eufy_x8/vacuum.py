@@ -19,7 +19,6 @@ from .const import (
     CONF_DEVICE_NAME,
     DOMAIN,
     DPS_ACTIVATE,
-    DPS_BATTERY,
     DPS_CLEAN_SPEED,
     DPS_LOCATE,
     DPS_RETURN_HOME,
@@ -37,7 +36,6 @@ FEATURES = (
     | VacuumEntityFeature.STOP
     | VacuumEntityFeature.PAUSE
     | VacuumEntityFeature.RETURN_HOME
-    | VacuumEntityFeature.BATTERY
     | VacuumEntityFeature.STATUS
     | VacuumEntityFeature.LOCATE
     | VacuumEntityFeature.FAN_SPEED
@@ -77,10 +75,6 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
     def state(self) -> str | None:
         dps15 = self.coordinator.data.get(DPS_WORK_STATUS, "")
         return ACTIVITY_MAP.get(dps15, "idle")
-
-    @property
-    def battery_level(self) -> int | None:
-        return self.coordinator.data.get(DPS_BATTERY)
 
     @property
     def fan_speed(self) -> str | None:
