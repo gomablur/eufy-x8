@@ -10,6 +10,7 @@ from custom_components.eufy_x8.const import (
     DPS_CLEAN_SPEED,
     DPS_LOCATE,
     DPS_RETURN_HOME,
+    DPS_WORK_MODE,
     DPS_WORK_STATUS,
     WORK_STATUS_CHARGING,
     WORK_STATUS_RUNNING,
@@ -104,7 +105,7 @@ def test_vacuum_fan_speed(vacuum, mock_coordinator, raw, expected_label):
 @pytest.mark.asyncio
 async def test_async_start(vacuum, mock_coordinator):
     await vacuum.async_start()
-    mock_coordinator.device.async_set.assert_awaited_once_with({DPS_ACTIVATE: True})
+    mock_coordinator.device.async_set.assert_awaited_once_with({DPS_WORK_MODE: "auto"})
 
 
 @pytest.mark.asyncio

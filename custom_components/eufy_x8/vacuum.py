@@ -23,6 +23,7 @@ from .const import (
     DPS_CLEAN_SPEED,
     DPS_LOCATE,
     DPS_RETURN_HOME,
+    DPS_WORK_MODE,
     DPS_WORK_STATUS,
     FAN_SPEED_FROM_LABEL,
     FAN_SPEED_LABELS,
@@ -103,7 +104,7 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
         }
 
     async def async_start(self) -> None:
-        await self.coordinator.device.async_set({DPS_ACTIVATE: True})
+        await self.coordinator.device.async_set({DPS_WORK_MODE: "auto"})
 
     async def async_stop(self, **kwargs) -> None:
         await self.coordinator.device.async_set({DPS_ACTIVATE: False})
