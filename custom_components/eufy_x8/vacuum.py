@@ -64,6 +64,15 @@ async def async_setup_entry(
         },
         "async_goto_location",
     )
+    platform.async_register_entity_service(
+        "locate_brief",
+        {
+            vol.Optional("duration", default=5): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=60)
+            ),
+        },
+        "async_locate_brief",
+    )
 
 
 class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
@@ -121,10 +130,14 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
         # and will ignore a True→True (no-change) command.
         await self.coordinator.device.async_set({DPS_LOCATE: False})
         await self.coordinator.device.async_set({DPS_LOCATE: True})
-        asyncio.create_task(self._async_cancel_locate())
 
-    async def _async_cancel_locate(self) -> None:
-        await asyncio.sleep(5)
+    async def async_locate_brief(self, duration: int) -> None:
+        await self.coordinator.device.async_set({DPS_LOCATE: False})
+        await self.coordinator.device.async_set({DPS_LOCATE: True})
+        asyncio.create_task(self._async_cancel_locate(duration))
+
+    async def _async_cancel_locate(self, delay: float) -> None:
+        await asyncio.sleep(delay)
         await self.coordinator.device.async_set({DPS_LOCATE: False})
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs) -> None:

@@ -1,6 +1,6 @@
 """Tests for the EufyX8Vacuum entity."""
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.vacuum import VacuumEntityFeature
@@ -129,8 +129,7 @@ async def test_async_return_to_base(vacuum, mock_coordinator):
 
 @pytest.mark.asyncio
 async def test_async_locate(vacuum, mock_coordinator):
-    with patch("custom_components.eufy_x8.vacuum.asyncio.create_task"):
-        await vacuum.async_locate()
+    await vacuum.async_locate()
     calls = mock_coordinator.device.async_set.await_args_list
     assert len(calls) == 2
     assert calls[0].args[0] == {DPS_LOCATE: False}
@@ -138,12 +137,14 @@ async def test_async_locate(vacuum, mock_coordinator):
 
 
 @pytest.mark.asyncio
-async def test_async_locate_auto_cancel(vacuum, mock_coordinator):
-    await vacuum.async_locate()
+async def test_async_locate_brief(vacuum, mock_coordinator):
+    await vacuum.async_locate_brief(duration=2)
     # Allow the cancel task to run
-    await asyncio.sleep(6)
+    await asyncio.sleep(3)
     calls = mock_coordinator.device.async_set.await_args_list
     assert len(calls) == 3
+    assert calls[0].args[0] == {DPS_LOCATE: False}
+    assert calls[1].args[0] == {DPS_LOCATE: True}
     assert calls[2].args[0] == {DPS_LOCATE: False}
 
 
