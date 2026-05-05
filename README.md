@@ -20,11 +20,11 @@ Both are vacuum-only with a basic charging dock (no auto-empty, no mop).
 - **Work mode select**: Auto / Edge / Spot / No Sweep
 - **Live status**: battery, cleaning time, cleaning area, activity, detailed status, errors
 - **Consumable tracking**: side brush, rolling brush, filter, sensor pad, side sensor, total runtime
-- **Goto command**: send the robot to any coordinates in its SLAM map (e.g. next to the bin after cleaning)
+- **Goto service** (`eufy_x8.goto`): send the robot to any coordinates in its SLAM map (e.g. next to the bin after cleaning)
+- **Locate brief service** (`eufy_x8.locate_brief`): make the robot beep for a short configurable duration — useful in automations to signal "please empty me"
 - **Cleaning map camera**: accumulates path data across sessions, rendered as a PNG image
 - **Automatic local key refresh**: the Tuya local key rotates when the robot reconnects to cloud; the integration detects this and fetches a new key automatically
-- **Switches**: BoostIQ, Do Not Disturb, Auto Return
-- **Buttons**: Locate, Capture Position
+- **Switches**: BoostIQ, Auto Return
 
 ## Installation
 
@@ -62,9 +62,8 @@ For a device named "Downstairs Robot":
 | Downstairs Robot Cleaning Time | Sensor | seconds |
 | Downstairs Robot Cleaning Area | Sensor | m² |
 | Downstairs Robot Activity | Sensor | Sleeping / Charging / Cleaning / Returning / etc. |
-| Downstairs Robot Status | Sensor | More granular: Starting / Cleaning / Going to location / etc. |
+| Downstairs Robot Status | Sensor | More granular: Starting / Cleaning / Going to location / Standby / etc. — use this in automations |
 | Downstairs Robot Error | Sensor | Human-readable error description |
-| Downstairs Robot Last Position | Sensor | Session-local coordinates (not goto coordinates — see note below) |
 | Downstairs Robot Side Brush | Sensor | Hours of use |
 | Downstairs Robot Rolling Brush | Sensor | Hours of use |
 | Downstairs Robot Filter | Sensor | Hours of use |
@@ -72,41 +71,44 @@ For a device named "Downstairs Robot":
 | Downstairs Robot Side Sensor | Sensor | Hours of use |
 | Downstairs Robot Total Runtime | Sensor | Hours |
 | Downstairs Robot BoostIQ | Switch | Boost suction on carpets |
-| Downstairs Robot Do Not Disturb | Switch | Silence the robot |
 | Downstairs Robot Auto Return | Switch | Auto-return to dock when battery low |
 | Downstairs Robot Work Mode | Select | Auto / Edge / Spot / No Sweep |
-| Downstairs Robot Locate | Button | Make the robot beep |
-| Downstairs Robot Capture Position | Button | Snapshot current coordinates (see below) |
 | Downstairs Robot Cleaning Map | Camera | Accumulated path PNG |
 
-## Goto: sending the robot to a location
+## Custom services
 
-The primary use case for this integration is sending the robot to a specific location after it finishes cleaning — for example, positioning it next to the bin so it's easy to empty.
+### `eufy_x8.goto` — send the robot to a location
 
-### How goto works
-
-The goto command sends the robot to a set of coordinates in its persistent SLAM map:
+Sends the robot to a set of coordinates in its persistent SLAM map. The primary use case is positioning it next to the bin after cleaning so it's easy to empty.
 
 ```yaml
-service: vacuum.send_command
+service: eufy_x8.goto
 target:
   entity_id: vacuum.downstairs_robot
 data:
-  command: goto
-  params:
-    x: 2283
-    y: -363
+  x: 2283   # your coordinates from intercept_goto.py
+  y: -363
 ```
 
-The integration automatically sends the required `clear` command before `goto` and waits the necessary ~35 seconds between them. (Skipping this makes the robot do a spot clean instead of navigating.)
+The integration automatically sends the required `clear` command before `goto` and waits the necessary ~35 seconds between them. (Skipping this causes the robot to do a spot clean at the target instead of navigating there.)
 
-### Finding your coordinates
+### `eufy_x8.locate_brief` — short beep
+
+Makes the robot beep for a configurable duration then stops, instead of beeping for the full ~60 second default. Useful in automations to signal that the robot wants attention (e.g. "I'm at the bin, please empty me").
+
+```yaml
+service: eufy_x8.locate_brief
+target:
+  entity_id: vacuum.downstairs_robot
+data:
+  duration: 5   # seconds, optional — defaults to 5, max 60
+```
+
+### Finding goto coordinates
 
 Goto coordinates are in the robot's internal SLAM map — they are stable across sessions and reboots. The only reliable way to discover them is to capture them from the Eufy app using the `intercept_goto.py` tool in `tools/`.
 
 See [tools/README.md](tools/README.md) — or run `intercept_goto.py` while using the Eufy app's "Go to Location" feature.
-
-**Quick version:**
 
 ```bash
 cd tools/
@@ -121,32 +123,75 @@ sudo python intercept_goto.py \
     --local-key <key from step 1> \
     --iface eth0 \
     --my-ip 192.168.1.y
-# Then use the Eufy app: Go to Location → tap the bin location
-# Coordinates are printed and you can use them in your automation
+# Then in the Eufy app: Go to Location → tap the bin
+# Coordinates are printed when captured
 ```
 
-### "Go to bin after cleaning" automation
+## "Go to bin after cleaning" automation
 
-Trigger when the robot transitions from `returning` to `docked` (meaning it just finished a clean, not a manual dock):
+A common pattern: when the robot finishes a substantial clean, send it to wait next to the bin so it's ready to empty; when it arrives, give a short beep to let you know.
+
+This uses the `Status` sensor (not the raw vacuum state) because it provides the granular values needed — "Cleaning", "Returning to dock", "Going to location", "Standby" — whereas the vacuum entity maps several of these to the same state.
+
+**Automation 1 — go to bin when cleaning ends**
+
+Triggers when the status changes from "Cleaning" to "Returning to dock" and the robot has cleaned at least 25 m². It then waits for the robot to actually dock before sending the goto, so the robot isn't mid-journey when the command arrives.
 
 ```yaml
-alias: Robot — go to bin after cleaning
+alias: Downstairs vacuum - go to bin after clean
+mode: single
 trigger:
   - platform: state
-    entity_id: vacuum.downstairs_robot
-    from: returning
-    to: docked
+    entity_id: sensor.downstairs_status
+condition:
+  - condition: template
+    value_template: >
+      {{ trigger.from_state.state | lower == 'cleaning'
+         and trigger.to_state.state | lower == 'returning to dock' }}
+  - condition: numeric_state
+    entity_id: sensor.downstairs_cleaning_area
+    above: 25
 action:
-  - delay: "00:00:05"   # brief pause after docking
-  - service: vacuum.send_command
+  - wait_for_trigger:
+      - platform: state
+        entity_id: vacuum.downstairs
+        to: docked
+    timeout: "00:15:00"
+    continue_on_timeout: false
+  - service: eufy_x8.goto
     target:
-      entity_id: vacuum.downstairs_robot
+      entity_id: vacuum.downstairs
     data:
-      command: goto
-      params:
-        x: 2283   # your bin coordinates from intercept_goto.py
-        y: -363
+      x: 2283   # replace with your bin coordinates
+      y: -363
 ```
+
+The 25 m² threshold means the automation only fires after a meaningful clean — not if the robot was moved off the dock briefly or ran a quick spot clean.
+
+**Automation 2 — beep when the robot arrives at the bin**
+
+Triggers when the status changes from "Going to location" to "Standby", meaning the robot has arrived at its goto destination.
+
+```yaml
+alias: Downstairs vacuum - beep when at bin
+mode: single
+trigger:
+  - platform: state
+    entity_id: sensor.downstairs_status
+condition:
+  - condition: template
+    value_template: >
+      {{ trigger.from_state.state | lower == 'going to location'
+         and trigger.to_state.state | lower == 'standby' }}
+action:
+  - service: eufy_x8.locate_brief
+    target:
+      entity_id: vacuum.downstairs
+    data:
+      duration: 5
+```
+
+Both automations use case-insensitive string comparison so firmware capitalisation changes don't break them.
 
 ## Coordinate systems — important note
 
