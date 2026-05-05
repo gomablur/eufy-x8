@@ -133,9 +133,15 @@ A common pattern: when the robot finishes a substantial clean, send it to wait n
 
 This uses the `Status` sensor (not the raw vacuum state) because it provides the granular values needed — "Cleaning", "Returning to dock", "Going to location", "Standby" — whereas the vacuum entity maps several of these to the same state.
 
-**Automation 1 — go to bin when cleaning ends**
+### Why a flag helper is needed
 
-Triggers when the status changes from "Cleaning" to "Returning to dock" and the robot has cleaned at least 25 m². It then waits for the robot to actually dock before sending the goto, so the robot isn't mid-journey when the command arrives.
+The robot doesn't broadcast its current position or destination via any DPS value, so there is no way to distinguish "arrived at bin" from "arrived at any other goto destination" purely from the robot's state. The solution is an `input_boolean` helper (`input_boolean.vacuum_headed_to_bin`) that automation 1 sets just before dispatching the goto, and automation 2 checks before beeping. This means if you ever add other goto commands the beep won't fire spuriously.
+
+Create the helper in HA under **Settings → Devices & Services → Helpers → Create helper → Toggle**, name it `Vacuum headed to bin`.
+
+### Automation 1 — go to bin when cleaning ends
+
+Triggers when the status changes from "Cleaning" to "Returning to dock" and the robot has cleaned at least 25 m². It then waits for the robot to actually dock before sending the goto (so the robot isn't mid-journey when the command arrives), sets the flag, and dispatches the goto.
 
 ```yaml
 alias: Downstairs vacuum - go to bin after clean
@@ -158,6 +164,9 @@ action:
         to: docked
     timeout: "00:15:00"
     continue_on_timeout: false
+  - service: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.vacuum_headed_to_bin
   - service: eufy_x8.goto
     target:
       entity_id: vacuum.downstairs
@@ -168,9 +177,9 @@ action:
 
 The 25 m² threshold means the automation only fires after a meaningful clean — not if the robot was moved off the dock briefly or ran a quick spot clean.
 
-**Automation 2 — beep when the robot arrives at the bin**
+### Automation 2 — beep when the robot arrives at the bin
 
-Triggers when the status changes from "Going to location" to "Standby", meaning the robot has arrived at its goto destination.
+Triggers when the status changes from "Going to location" to "Standby" (robot arrived at its destination) **and** the flag is set, so the beep only fires when this automation sent it there, not for any other goto you might add in future.
 
 ```yaml
 alias: Downstairs vacuum - beep when at bin
@@ -183,7 +192,13 @@ condition:
     value_template: >
       {{ trigger.from_state.state | lower == 'going to location'
          and trigger.to_state.state | lower == 'standby' }}
+  - condition: state
+    entity_id: input_boolean.vacuum_headed_to_bin
+    state: "on"
 action:
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.vacuum_headed_to_bin
   - service: eufy_x8.locate_brief
     target:
       entity_id: vacuum.downstairs
