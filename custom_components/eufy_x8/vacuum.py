@@ -1,6 +1,7 @@
 """Vacuum entity for Eufy X8."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -120,7 +121,11 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
         # and will ignore a True→True (no-change) command.
         await self.coordinator.device.async_set({DPS_LOCATE: False})
         await self.coordinator.device.async_set({DPS_LOCATE: True})
-        _LOGGER.debug("locate: queued DPS 103 False→True")
+        asyncio.create_task(self._async_cancel_locate())
+
+    async def _async_cancel_locate(self) -> None:
+        await asyncio.sleep(5)
+        await self.coordinator.device.async_set({DPS_LOCATE: False})
 
     async def async_set_fan_speed(self, fan_speed: str, **kwargs) -> None:
         raw = FAN_SPEED_FROM_LABEL.get(fan_speed, fan_speed)
