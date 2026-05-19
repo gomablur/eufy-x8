@@ -1,4 +1,4 @@
-"""Sensors: battery, cleaning stats, error, activity, position."""
+"""Sensors: battery, cleaning stats, error, activity, status."""
 from __future__ import annotations
 
 import logging

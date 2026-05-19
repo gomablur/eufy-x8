@@ -2,7 +2,11 @@
 
 A Home Assistant custom integration for Eufy X8 robot vacuums using the **Tuya v3.3 local protocol** (LAN, no cloud dependency after setup). Tested on the T2262 and T2262EV (X8 Pro).
 
-> **Why this exists**: The official Eufy integration and most forks use the cloud MQTT protocol (AIOT/protobuf over AWS IoT). Eufy X8 devices are on the older Tuya platform and their MQTT subscriptions are rejected by the Anker broker — they simply don't receive status updates over that path. This integration talks directly to the robot over your local network using Tuya v3.3 on port 6668.
+> **Why this exists**: The X8 (T2262 / T2262EV) is on Eufy's older Tuya platform, not the AIOT/protobuf path the modern fleet uses. The Anker AIOT MQTT broker denies subscription for these device IDs (`SUBACK 0x80`), but the X8 is still reachable via Eufy's older V1 cloud API — and that's the path my own [`eufy-clean`](https://github.com/8none1/eufy-clean) fork uses to drive it. It works for the basics. What it lacks is a `goto` service (the killer feature for "park next to the bin" automations) and it depends on the Anker cloud being up.
+>
+> The original Tuya-based community integration ([`mitchellrj/eufy_robovac`](https://github.com/mitchellrj/eufy_robovac)) is dormant — last commit June 2020 — and stopped working on the X8 at some point in the past, possibly due to firmware changes.
+>
+> This integration talks directly to the robot over Tuya v3.3 on port 6668. No cloud after the initial credential exchange, and a `goto` service so the robot can park itself somewhere convenient.
 
 ## Supported devices
 
@@ -16,13 +20,11 @@ Both are vacuum-only with a basic charging dock (no auto-empty, no mop).
 ## Features
 
 - **Full vacuum control**: start, stop, pause, return to dock, locate
-- **Fan speed control**: Quiet / Standard / Turbo / Max
+- **Fan speed control**: Low / Medium / High / Max
 - **Work mode select**: Auto / Edge / Spot / No Sweep
 - **Live status**: battery, cleaning time, cleaning area, activity, detailed status, errors
-- **Consumable tracking**: side brush, rolling brush, filter, sensor pad, side sensor, total runtime
 - **Goto service** (`eufy_x8.goto`): send the robot to any coordinates in its SLAM map (e.g. next to the bin after cleaning)
 - **Locate brief service** (`eufy_x8.locate_brief`): make the robot beep for a short configurable duration — useful in automations to signal "please empty me"
-- **Cleaning map camera**: accumulates path data across sessions, rendered as a PNG image
 - **Automatic local key refresh**: the Tuya local key rotates when the robot reconnects to cloud; the integration detects this and fetches a new key automatically
 - **Switches**: BoostIQ, Auto Return
 
@@ -61,19 +63,12 @@ For a device named "Downstairs Robot":
 | Downstairs Robot Battery | Sensor | % |
 | Downstairs Robot Cleaning Time | Sensor | seconds |
 | Downstairs Robot Cleaning Area | Sensor | m² |
-| Downstairs Robot Activity | Sensor | Sleeping / Charging / Cleaning / Returning / etc. |
-| Downstairs Robot Status | Sensor | More granular: Starting / Cleaning / Going to location / Standby / etc. — use this in automations |
+| Downstairs Robot Activity | Sensor | HA vacuum state: docked / cleaning / returning / idle |
+| Downstairs Robot Status | Sensor | More granular: Starting / Cleaning / Going to location / Returning to dock / Standby / etc. — use this in automations |
 | Downstairs Robot Error | Sensor | Human-readable error description |
-| Downstairs Robot Side Brush | Sensor | Hours of use |
-| Downstairs Robot Rolling Brush | Sensor | Hours of use |
-| Downstairs Robot Filter | Sensor | Hours of use |
-| Downstairs Robot Sensor Pad | Sensor | Hours of use |
-| Downstairs Robot Side Sensor | Sensor | Hours of use |
-| Downstairs Robot Total Runtime | Sensor | Hours |
 | Downstairs Robot BoostIQ | Switch | Boost suction on carpets |
 | Downstairs Robot Auto Return | Switch | Auto-return to dock when battery low |
 | Downstairs Robot Work Mode | Select | Auto / Edge / Spot / No Sweep |
-| Downstairs Robot Cleaning Map | Camera | Accumulated path PNG |
 
 ## Custom services
 
@@ -208,26 +203,10 @@ action:
 
 Both automations use case-insensitive string comparison so firmware capitalisation changes don't break them.
 
-## Coordinate systems — important note
-
-There are two separate coordinate spaces for the X8:
-
-| System | Used for | Stable? | How to get |
-|--------|----------|---------|------------|
-| **Goto coordinates** | `vacuum.send_command` goto | Yes — fixed to SLAM map | `intercept_goto.py` or Capture Position button |
-| **Path data coordinates** | `Last Position` sensor, Cleaning Map camera | No — session-local, resets each clean | Automatic (from Tuya cloud API) |
-
-Do **not** use Last Position sensor values in goto commands — they are in a different, session-local coordinate system and will point to the wrong location.
-
-## Cleaning map camera
-
-The `Cleaning Map` camera entity renders an accumulated view of the robot's cleaning paths across sessions, built from Tuya path data fetched after each clean. Older sessions are shown in grey; the most recent session is shown in light blue; the dock position is marked in red.
-
-The map accumulates up to 20 sessions. Path coordinates are stored in HA persistent storage and survive restarts.
-
 ## Known limitations
 
 - **No room cleaning**: Room-by-room cleaning requires the AIOT cloud MQTT path. Eufy X8s (T2262/T2262EV) are on the Tuya platform and room cleaning via local protocol returns "Failed" in all tested states.
+- **No map / path visualisation**: The robot clearly has its own SLAM map (goto coordinates are stable across sessions) but does not expose it on either the local or cloud protocols. The Tuya `media.latest` endpoint was investigated as a path-data source and proved unusable — see [tools/CLAUDE.md](tools/CLAUDE.md) for the full write-up so nobody has to repeat the dead-end work.
 - **Initial state delay**: Battery level and status default to 0 / idle until the robot sends its first status push, typically within 1–2 minutes of waking or finishing a clean.
 - **Local key rotation**: The Tuya local key rotates when the robot reconnects to the Eufy cloud (several times per day). The integration handles this automatically by catching the `InvalidKey` error and fetching a fresh key.
 - **IP changes**: If your router assigns a new IP, update it via **Configure** on the integration card.
@@ -265,16 +244,12 @@ The local key has rotated. The integration handles this automatically — if you
 **Robot ignores goto command / does a spot clean instead**
 The `clear` → wait → `goto` sequence may have been disrupted. Ensure the robot is not actively cleaning when you send the goto command.
 
-**Cleaning map is blank**
-Path data is fetched after a cleaning session completes. Run a full clean cycle to populate it.
-
 **Status stuck at idle / battery at 0%**
 The robot hasn't sent a status update yet. This resolves within 1–2 minutes after the robot wakes or finishes a clean.
 
 ## Dependencies
 
-- `tinytuya` — Tuya v3.3 local protocol (installed automatically via `requirements` in manifest)
-- `Pillow` — cleaning map camera image rendering (installed automatically)
+The integration is self-contained — it ships its own Tuya v3.3 client (`custom_components/eufy_x8/api/`) and depends only on libraries already bundled with Home Assistant (`aiohttp`, `voluptuous`, `cryptography`).
 
 For the `tools/` directory:
 ```
