@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ACTIVITY_MAP,
+    activity_for,
     CONF_DEVICE_NAME,
     DOMAIN,
     DPS_BATTERY,
@@ -123,7 +123,7 @@ class ActivitySensor(_Base):
     @property
     def native_value(self):
         dps15 = self.coordinator.data.get(DPS_WORK_STATUS, "unknown")
-        return ACTIVITY_MAP.get(dps15, dps15)
+        return activity_for(dps15, dps15)
 
 
 class ErrorSensor(_Base):
@@ -157,6 +157,18 @@ _DETAILED_STATUS: dict[tuple[str, str], str] = {
     ("Locating", ""): "Locating",
 }
 
+# Case-insensitive variant — casing of DPS 15/122 varies by model (see const.py).
+_DETAILED_STATUS_CI = {(a.lower(), b.lower()): v for (a, b), v in _DETAILED_STATUS.items()}
+
+
+def _detailed_status(dps15, dps122):
+    a = str(dps15 or "").lower()
+    b = str(dps122 or "").lower()
+    status = _DETAILED_STATUS_CI.get((a, b))
+    if status is None:
+        status = _DETAILED_STATUS_CI.get((a, ""), dps15 or "Unknown")
+    return status
+
 
 class DetailedStatusSensor(_Base):
     """Combines DPS 15 and DPS 122 into a more granular human-readable status."""
@@ -171,10 +183,7 @@ class DetailedStatusSensor(_Base):
     def native_value(self) -> str:
         dps15 = self.coordinator.data.get(DPS_WORK_STATUS, "")
         dps122 = self.coordinator.data.get(DPS_WORK_STATUS_2, "")
-        status = _DETAILED_STATUS.get((dps15, dps122))
-        if status is None:
-            status = _DETAILED_STATUS.get((dps15, ""), dps15 or "Unknown")
-        return status
+        return _detailed_status(dps15, dps122)
 
     @property
     def extra_state_attributes(self) -> dict:

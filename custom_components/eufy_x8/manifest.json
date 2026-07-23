@@ -2,13 +2,15 @@
   "domain": "eufy_x8",
   "name": "Eufy X8 Robot Vacuum",
   "codeowners": [
-    "@8none1"
+    "@gomablur"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/8none1/eufy-x8",
+  "documentation": "https://github.com/gomablur/eufy-x8",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/8none1/eufy-x8/issues",
-  "requirements": [],
-  "version": "0.1.29"
+  "issue_tracker": "https://github.com/gomablur/eufy-x8/issues",
+  "requirements": [
+    "tinytuya==1.20.0"
+  ],
+  "version": "0.2.1"
 }

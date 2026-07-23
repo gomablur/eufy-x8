@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -26,6 +27,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PING_INTERVAL = 10
 TIMEOUT = 5
+# Minimum spacing between cloud local-key refreshes. tinytuya returns the same
+# error code (914) for a bad key and for a transient v3.4/v3.5 handshake failure,
+# so a persistent fault could otherwise trigger an Eufy cloud login every poll.
+KEY_REFRESH_COOLDOWN = 300
 
 
 class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -37,6 +42,7 @@ class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             entry.data[CONF_PASSWORD],
         )
         self._device: TuyaDevice | None = None
+        self._last_key_refresh: float | None = None
 
         super().__init__(
             hass,
@@ -76,6 +82,16 @@ class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._device
 
     async def _refresh_key(self) -> str:
+        # None means "never refreshed" — always allow the first refresh. Using a
+        # sentinel (rather than 0.0) avoids depending on the absolute value of
+        # time.monotonic(), which on a freshly-booted host can be < the cooldown
+        # and would otherwise skip the very first refresh.
+        now = time.monotonic()
+        if (self._last_key_refresh is not None
+                and now - self._last_key_refresh < KEY_REFRESH_COOLDOWN):
+            _LOGGER.debug("Key refresh skipped (cooldown)")
+            return self._entry.data[CONF_LOCAL_KEY]
+        self._last_key_refresh = now
         try:
             new_key = await get_local_key(self._auth, self._entry.data[CONF_DEVICE_ID])
             if new_key and new_key != self._entry.data[CONF_LOCAL_KEY]:

@@ -1,6 +1,16 @@
 # Eufy X8 Robot Vacuum — Home Assistant Integration
 
-A Home Assistant custom integration for Eufy X8 robot vacuums using the **Tuya v3.3 local protocol** (LAN, no cloud dependency after setup). Tested on the T2262 and T2262EV (X8 Pro).
+> ### 🍴 This is a fork
+>
+> This is a fork of **[8none1/eufy-x8](https://github.com/8none1/eufy-x8)** by [@8none1](https://github.com/8none1), whose excellent work — the protocol research, the integration, the `goto` service, and the tooling — is the entire foundation this builds on. **All credit for the hard parts goes to them.**
+>
+> This fork adds one thing: **support for newer Eufy models that speak Tuya protocol v3.4/v3.5**, while keeping the original v3.3 devices working exactly as before. It was made to get the **X8 Pro Hybrid SES (T2276)** — which speaks Tuya **v3.5** (AES-GCM with a session-key handshake) and so timed out against the original v3.3-only client — talking to Home Assistant.
+>
+> **What changed:** the transport layer (`api/local.py`) now delegates the Tuya wire protocol to the well-maintained [`tinytuya`](https://github.com/jasonacox/tinytuya) library and **auto-detects the protocol version** (v3.1 / v3.3 / v3.4 / v3.5). The public interface, entities, services, and behaviour are otherwise unchanged. See [CHANGELOG.md](CHANGELOG.md) for details.
+>
+> If you have an original X8 / X8 Pro (T2262 / T2262EV), the upstream project is the canonical source — please star and support it there.
+
+A Home Assistant custom integration for Eufy X8 robot vacuums using the **Tuya local protocol** (v3.3–v3.5, auto-detected — LAN, no cloud dependency after setup). Tested on the T2262, T2262EV (X8 Pro), and T2276 (X8 Pro Hybrid SES).
 
 > **Why this exists**: The X8 (T2262 / T2262EV) is on Eufy's older Tuya platform, not the AIOT/protobuf path the modern fleet uses. The Anker AIOT MQTT broker denies subscription for these device IDs (`SUBACK 0x80`), but the X8 is still reachable via Eufy's older V1 cloud API — and that's the path my own [`eufy-clean`](https://github.com/8none1/eufy-clean) fork uses to drive it. It works for the basics. What it lacks is a `goto` service (the killer feature for "park next to the bin" automations) and it depends on the Anker cloud being up.
 >
@@ -10,12 +20,15 @@ A Home Assistant custom integration for Eufy X8 robot vacuums using the **Tuya v
 
 ## Supported devices
 
-| Model | Code | Notes |
-|-------|------|-------|
-| Eufy X8 | T2262 | Confirmed working |
-| Eufy X8 Pro | T2262EV | Confirmed working ("EV" is a hardware revision) |
+| Model | Code | Protocol | Notes |
+|-------|------|----------|-------|
+| Eufy X8 | T2262 | Tuya v3.3 | Confirmed working (upstream) |
+| Eufy X8 Pro | T2262EV | Tuya v3.3 | Confirmed working ("EV" is a hardware revision, upstream) |
+| Eufy X8 Pro Hybrid SES | T2276 | Tuya v3.5 | Confirmed working (this fork) |
 
-Both are vacuum-only with a basic charging dock (no auto-empty, no mop).
+The T2262 / T2262EV are vacuum-only with a basic charging dock (no auto-empty, no mop). The T2276 (X8 Pro Hybrid SES) has an auto-empty station and mopping; those extra capabilities are exposed as DPS but only the common vacuum controls are surfaced as entities so far.
+
+The protocol version is detected automatically at connect time, so no configuration is needed regardless of model.
 
 ## Features
 
@@ -33,7 +46,8 @@ Both are vacuum-only with a basic charging dock (no auto-empty, no mop).
 ### HACS (recommended)
 
 1. Open HACS → Integrations → three-dot menu → Custom repositories
-2. Add `https://github.com/8none1/eufy-x8` as category **Integration**
+2. Add `https://github.com/gomablur/eufy-x8` as category **Integration**
+   (for original X8 / X8 Pro on v3.3, the upstream `https://github.com/8none1/eufy-x8` is the canonical source)
 3. Search for "Eufy X8" and install
 4. Restart Home Assistant
 
@@ -238,8 +252,8 @@ sudo python intercept_goto.py --robot-ip 192.168.1.x --local-key <key> --iface e
 **Robot not found during setup**
 The UDP discovery listens for 4 seconds. If the robot is asleep it won't respond. Leave the IP field blank and the integration will find it automatically when the robot next wakes. Alternatively, enter the IP manually.
 
-**`Unexpected Payload` or `InvalidKey` errors in logs**
-The local key has rotated. The integration handles this automatically — if you see it repeatedly, check that your Eufy credentials are still valid.
+**`Unexpected Payload` (904) or `InvalidKey` (914) errors in logs**
+Usually the local key has rotated; the integration refreshes it automatically. On v3.4/v3.5 a long-lived session can also desync and return 904 — the transport uses a fresh (non-persistent) socket per poll and drops/reconnects on any error, so this self-heals within one poll. If you see it repeatedly, check that your Eufy credentials are still valid.
 
 **Robot ignores goto command / does a spot clean instead**
 The `clear` → wait → `goto` sequence may have been disrupted. Ensure the robot is not actively cleaning when you send the goto command.
@@ -249,7 +263,9 @@ The robot hasn't sent a status update yet. This resolves within 1–2 minutes af
 
 ## Dependencies
 
-The integration is self-contained — it ships its own Tuya v3.3 client (`custom_components/eufy_x8/api/`) and depends only on libraries already bundled with Home Assistant (`aiohttp`, `voluptuous`, `cryptography`).
+The transport layer delegates the Tuya wire protocol to [`tinytuya`](https://github.com/jasonacox/tinytuya), which implements v3.1 / v3.3 / v3.4 / v3.5. It is declared in `manifest.json` (`tinytuya==1.20.0`) and Home Assistant installs it automatically on first load. The cloud auth path (`api/auth.py`, for local-key retrieval/refresh) uses `aiohttp`, already bundled with Home Assistant.
+
+> Note: upstream (v3.3-only) shipped a self-contained hand-rolled Tuya client with no third-party dependency. This fork trades that for `tinytuya` in order to gain the v3.4/v3.5 session-key + AES-GCM handshake without reimplementing it.
 
 For the `tools/` directory:
 ```
@@ -263,4 +279,6 @@ See [tools/CLAUDE.md](tools/CLAUDE.md) for full DPS reference, goto command form
 
 ## Acknowledgements
 
-Protocol research and initial tools based on work in the [eufy-clean](https://github.com/8none1/eufy-clean) project and the broader Tuya local protocol community.
+- **[@8none1](https://github.com/8none1)** — the original author of [eufy-x8](https://github.com/8none1/eufy-x8), which this project is a fork of. The integration architecture, entity design, the `goto` service, the protocol reverse-engineering, and the `tools/` are all their work. This fork only swaps the transport layer for broader protocol-version support; everything that makes the integration good came from upstream.
+- **[jasonacox/tinytuya](https://github.com/jasonacox/tinytuya)** — the Tuya local protocol library this fork's transport now delegates to (v3.1–v3.5).
+- Protocol research and initial tools based on work in the [eufy-clean](https://github.com/8none1/eufy-clean) project and the broader Tuya local protocol community.
