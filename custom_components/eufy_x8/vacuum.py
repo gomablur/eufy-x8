@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    ACTIVITY_MAP,
+    activity_for,
     CONF_DEVICE_NAME,
     DOMAIN,
     DPS_ACTIVATE,
@@ -96,7 +96,7 @@ class EufyX8Vacuum(CoordinatorEntity[EufyX8Coordinator], StateVacuumEntity):
     @property
     def state(self) -> str | None:
         dps15 = self.coordinator.data.get(DPS_WORK_STATUS, "")
-        return ACTIVITY_MAP.get(dps15, "idle")
+        return activity_for(dps15, "idle")
 
     @property
     def fan_speed(self) -> str | None:

@@ -67,6 +67,17 @@ ACTIVITY_MAP = {
     WORK_STATUS_LOCATING:  "idle",
 }
 
+# Case-insensitive lookup: different Eufy models report DPS 15 with different
+# casing (e.g. the X8 Pro Hybrid SES / T2276 sends "completed", not "Completed").
+_ACTIVITY_MAP_CI = {k.lower(): v for k, v in ACTIVITY_MAP.items()}
+
+
+def activity_for(dps15, default="idle"):
+    """Map a DPS 15 work-status string to an HA vacuum activity, case-insensitively."""
+    if dps15 is None:
+        return default
+    return _ACTIVITY_MAP_CI.get(str(dps15).lower(), default)
+
 # Goto coordinate system (DPS 124)
 #
 # Goto coordinates are in the robot's persistent SLAM map coordinate system.
