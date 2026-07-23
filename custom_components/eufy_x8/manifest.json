@@ -9,6 +9,8 @@
   "documentation": "https://github.com/gomablur/eufy-x8",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/gomablur/eufy-x8/issues",
-  "requirements": ["tinytuya==1.20.0"],
-  "version": "0.2.0"
+  "requirements": [
+    "tinytuya==1.20.0"
+  ],
+  "version": "0.2.1"
 }
