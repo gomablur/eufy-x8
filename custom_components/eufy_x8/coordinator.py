@@ -42,7 +42,7 @@ class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
             entry.data[CONF_PASSWORD],
         )
         self._device: TuyaDevice | None = None
-        self._last_key_refresh = 0.0
+        self._last_key_refresh: float | None = None
 
         super().__init__(
             hass,
@@ -82,8 +82,13 @@ class EufyX8Coordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._device
 
     async def _refresh_key(self) -> str:
+        # None means "never refreshed" — always allow the first refresh. Using a
+        # sentinel (rather than 0.0) avoids depending on the absolute value of
+        # time.monotonic(), which on a freshly-booted host can be < the cooldown
+        # and would otherwise skip the very first refresh.
         now = time.monotonic()
-        if now - self._last_key_refresh < KEY_REFRESH_COOLDOWN:
+        if (self._last_key_refresh is not None
+                and now - self._last_key_refresh < KEY_REFRESH_COOLDOWN):
             _LOGGER.debug("Key refresh skipped (cooldown)")
             return self._entry.data[CONF_LOCAL_KEY]
         self._last_key_refresh = now
